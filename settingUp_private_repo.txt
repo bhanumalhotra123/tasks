@@ -1,0 +1,145 @@
+How do you setup private repository in nexus?
+
+Artifact: The files that contain both compiled code and the resources that are used to compile them are known as artifacts. They are readily deployable files.
+
+In Java an artifact would be a .jar file, .war or .ear file
+In NPM the artifact file would be a .tar.gz file
+In .NET the artifact file would be .dll file
+In case of docker we call docker-image as an artifact.
+
+Whatever code you have written may not be understood by the machine you will deploy your code on. 
+We supply our source code to tools like maven and gradle build tools. These tools change your code to byte code which is understood by the machines where you want to run the applications.
+
+Now to run the binary file that is created we may need some dependencies and resources to run the binary file properly
+
+Binary file + dependencies = Artifact
+
+An Artifactory is repository which can store multiple different versions of artifacts.
+
+Artifact ---> Artifactory ---> Deployment
+
+What problems artifactory solve?
+
+You have version1 running
+
+You created version2 with some updates, you deploy it and found some issues. Now what if you haven't saved the version1 artifact?
+
+We want to roll it back to version1! We need the artifactory instead of doing everything again. Kind of automation!
+
+Now we will focus on Nexus Artifactoru. You do have other options like JFrog, AWS ECR etc...
+Why nexus
+
+
+
+You can integrate nexus with alot of CICD tools like Jenkins, CIrcle CI, Github Actions. It works for multiple build tools like maven, gradle, can also use it as npm registry or docker images. Works with IDEs like pycharm, VS Code etc... 
+Let us take two machines:
+
+1. maven installed
+2. Install nexus (where we keep dependecies and artifacts)
+
+Installations can be done using documentations
+
+Machine1: mvn --version (to check maven version)
+ 
+Use git clone to clone your code with pom.xml
+
+mvn install 
+
+(even maven is pointed to repositories(not public) which have dependencies)
+
+
+dependencies on maven.org(public repo) -----> nexus repository ----Secure----> Developers
+
+First It will check if the dependency is there in the nexus, if not it will fetch from public repository and then provide it to the user. Basically we cache dependencies in nexus so as to save the time. And security goes up too as developers can't directly download from internet.
+
+Go to nexus repository server
+
+Select settings button > Repositories > Create Repository(for multiple langugaes you can create) > maven2 proxy
+
+When you select maven2 proxy
+
+name: nexus-proxy-repo
+Remote Storage: from where should it download the when it is asked form something which is not cached.(you check these in logs in general, where the dependencies are being downloaded when you do maven install before creating a private repo for it): https://repo.maven.apache.org/maven2
+after this select other common settings and create the repo
+
+Now we want our maven project to download dependencies from our private nexus repository.
+
+cd ~/.m2/
+here we create a file named settings.xml file (we update things) [this file will vary as per the repo like for docker it daemon.json file]
+
+we remove the authentication part(across the organisation everyone should be able to fetch dependencies from it)
+you point to the repository url in <mirror> </mirror>, eg - http://ip_of_nexus_machine:8081/repository/nexus-proxy-repo/
+once done
+do: maven clean install        (this time dependencies will be downloaded from your nexus repository)
+
+Why were you able to download without authentication?
+In nexus we have allowed anonymous access(under security tab)
+If it is allowed all people in the organization can download but can not change the artifacts which are uploaded
+
+You can also check the repository it will have all the dependencies, next time it won't download these from private repo.
+
+Once you build using maven it creates a jar, war file depending on what is mentioned in your pom.xml package definition.
+
+
+Now we also want this jar file created to be pushed to the private repository.
+
+How we do it?
+
+We need to do few settings in pom.xml in <distributionManagement>  ..give SNAPSHOT repo and Actual repo herehere.. <distributionManagement>  (publishing section in gradle)
+
+GroupID ArtifactID VersionID (when there is SNAPSHOT given in Version it means it is development artifact goes to different directory which have say 30 days limit)
+when it is given as RELEASE it means it is for QA or production environment it is saved in different repository
+We seperate both so as to manage the lifecycle seperately. 
+
+Now depending on your Version mentioned in GAV 
+
+Go to administration module in nexus again and go to create repositories > earlier we picked maven2(proxy)[this downloaded from another source] this time we will use maven2(hosted) [we want to push our artifacts]
+
+We want release and spanshots seperately
+Now first create for release:
+Name: nexus-release-repo
+Version Policy: Release(you have options like SNAPSHOT, RELEASE, Mixed)
+Deployment Policy: Disable redeploy(No one can overwrite once a artifact is pushed)[other options: Allow Redeploy, Read only etc]
+
+Now SNAPSHOT repo:
+Name: nexus-snapshot-repo
+Version Policy: SNAPSHOT
+Deployment Policy: Allow Redeploy
+
+This time we should setup authentication so that not anyone can write to our repository:
+In pom.xml you will add a server block above mirror which have </server> <id> nexus </id> <username> admin </username> <password> admin </password> </server>
+
+mvn deploy  [if say you have Version as 1.30.0-RELEASE] it will be uploaded to nexus repo for releases. You can go and check. Try redeploying it won't be allowed as you had selected disable reploy. You need to change the version to redeploy.
+
+mvn clean install first check ~/.m2/repository for dependencies, if not there it goes to nexus we setup, if not there nexus will fetch from public.
+We saw hosted, proxy, now we want to understand another use case: If there are two teams: Front-end, backend. What if now 1 team uploaded these artifacts and another wants to download?
+
+For this you need to select maven2(group) : This kind of repository aggregates both proxy and hosted repositories[using this the employees can  use both internal and external packages]
+
+Name: nexus-group
+Member Repository: maven proxy, maven-release-repo, maven-snapshot-repo
+
+Now we will be able to point to this group repo whenever we want to download anything.
+
+Say you have cloned another project and you want to use some dependencies in another project. mention the GAV for that dependency in pom.xml of new project in <dependency>...GAV...</dependency>
+
+vi ~/.m2/settings.xml
+
+Here we need to provide our maven-group repository, going to nexus server you will find the url to this maven-group repository
+
+
+ <mirror>
+<url> url to the maven-group repo </url>
+
+ </mirror>
+
+now when you do maven clean install it should install the dependencies of the new project and also the dependency from our maven-group which we had mentioned in pom.xml
+
+the folder structure of downloaded repository is based on GAV mentioned. so if in GroupID you had given say com.example we will have com repo
+ArtifactID = demo
+
+cd ~/.m2/repository/com/example/demo
+
+ls 
+
+here you will have the dependency that you had added from pervious project.
