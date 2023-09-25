@@ -1,0 +1,119 @@
+./report.sh count  should give give number of repos on nexus server  
+./report.sh hosted should give number of hosted repos on nexus server  
+same for proxy repos  
+automating admin activities  
+  
+  
+Use of nexus api's and nexus api give jason output, to handle that we use command line utility jq (jason query)  
+
+JSON Structure: JSON data is structured and hierarchical, which makes it challenging to parse correctly using regular expressions (which grep relies on). jq is specifically designed for parsing and querying JSON data, so it provides a more reliable and robust way to work with JSON.  
+  
+Settings button > System > API (Here all the API's which can be used to work with nexus are listed.)  
+  
+GET /v1/repositories (to list the repos)  
+  
+You can test it with GUI (and here it can be noticed it gives us data in jason.)   
+  
+curl -X 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json'  
+When we use this script if we are able to fetch data without username and password it means under security section you have said yes to anonymous access option.  
+  
+If not   
+curl -X -u admin:admin 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json'    
+
+This will list the repositories, what if we just want to know the count?  
+
+vi report.sh
+  
+#! /bin/bash  
+if ["$1" = "count"]  
+then   
+curl -X 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json'    
+fi
+
+Now this give us list of repos only when count argument is passed  
+After observing the result we noticed that it is an array and in each section there were 4 attributes: name, format, type, url. But say what if there comes more attributes like name of the key. Therefore it is not a great idea to use something like grep.
+
+Instead we will use jq which can easily help us loop through the objects in jason  
+    
+./report.sh > report.json  
+  
+now when we do cat report.json | jq.[]  
+  
+It gives the output removing the [] bascically giving us what is in the array. After this using:   cat report.json | jq.[].name       (This listed only the repo names)  
+  
+cat report.json | jq.[].name | wc -l   (this gives us the number of repositories)  
+
+#! /bin/bash  
+if ["$1" = "count"]  
+then   
+curl -X 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq.[].name | wc -l  
+fi
+
+
+#! /bin/bash  
+if ["$1" = "count"]  
+then   
+curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq.[].name | wc -l     (here -s tag is used to suppress the default output.)  
+fi  
+
+#! /bin/bash  
+if ["$1" = "count"]  
+then   
+curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq.[].name | wc -l  
+elif ["$1" = "hosted"]  
+then  
+    curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq '.[] | select ( .type == "hosted" ) | .name' | sed 's/"//g'      (sed is used to remove the "")  
+fi  
+
+now ./report.sh hosted will the names of repos which are hosted.
+
+
+  
+  
+
+Now we need to list the proxy repos and also the urls they are pointing to.  
+
+#! /bin/bash  
+if ["$1" = "count"]  
+then   
+curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq.[].name | wc -l  
+elif ["$1" = "hosted"]  
+then  
+    echo "Repo Name"  
+    curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq '.[] | select ( .type == "hosted" ) | .name' | sed 's/"//g'      (sed is used to remove the "")  
+elif ["$1" = "proxy"]
+then  
+    echo "Repo Name, Remote URL"  
+     curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq '.[] | select ( .type == "proxy" ) | .name + "," + .attributes.proxy.remoteUrl' | sed 's/"//g' (here we are fetching name and remote Url both)      
+fi   
+
+
+  
+
+Now we also need to include the case in which we just run the script with wrong arguments.  
+
+#! /bin/bash  
+
+help(){  
+      echo "The way script was executed is incorrect"  
+      echo "The arguments which you can pass while running the script are are count, hosted and proxy"  
+      echo "Example to run this script: sh report.sh count"  
+
+}                      (This function is used to provide some info to the user if in case of failures)
+
+if ["$1" = "count"]  
+then   
+curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq.[].name | wc -l  
+elif ["$1" = "hosted"]  
+then  
+    echo "Repo Name"  
+    curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq '.[] | select ( .type == "hosted" ) | .name' | sed 's/"//g'      (sed is used to remove the "")  
+elif ["$1" = "proxy"]
+then  
+    echo "Repo Name, Remote URL"  
+     curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq '.[] | select ( .type == "proxy" ) | .name + "," + .attributes.proxy.remoteUrl' | sed 's/"//g' (here we are fetching name and remote Url both)      
+else  
+  help  
+fi   
+
+
