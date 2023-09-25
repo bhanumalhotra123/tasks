@@ -91,6 +91,7 @@ fi
   
 
 Now we also need to include the case in which we just run the script with wrong arguments.  
+We will use PUT operation as we 
 
 #! /bin/bash  
 
@@ -113,6 +114,49 @@ then
     echo "Repo Name, Remote URL"  
      curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq '.[] | select ( .type == "proxy" ) | .name + "," + .attributes.proxy.remoteUrl' | sed 's/"//g' (here we are fetching name and remote Url both)      
 else  
+  help  
+fi   
+
+
+
+Adding admin activities to the script(for this we can't use other nexus apis):  
+
+
+#! /bin/bash  
+
+help(){  
+      echo "The way script was executed is incorrect"  
+      echo "The arguments which you can pass while running the script are are count, hosted and proxy"  
+      echo "Example to run this script: sh report.sh count"  
+
+}                      (This function is used to provide some info to the user if in case of failures)
+
+if ["$1" = "count"]  
+then   
+curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq.[].name | wc -l  
+elif ["$1" = "hosted"]  
+then  
+    echo "Repo Name"  
+    curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq '.[] | select ( .type == "hosted" ) | .name' | sed 's/"//g'      (sed is used to remove the "")  
+elif ["$1" = "proxy"]
+then  
+    echo "Repo Name, Remote URL"  
+     curl -X -s 'GET' 'http://nexus-ip:8081/service/rest/v1/repositories' \-H 'accept: application/json' | jq '.[] | select ( .type == "proxy" ) | .name + "," + .attributes.proxy.remoteUrl' | sed 's/"//g' (here we are fetching name and remote Url both)      
+elif [["$1" = "admin" && "$2" = "mrc"]]     (mrc here stands for maven repo creation)  
+then  
+  echo "Are you sure you want to create maven repo?"  
+  echo "Please enter repository name"  
+  read mvnreponame  
+  sed -i "s/REPONAME/$mvnreponame/" maven.json  
+  curl -H "Content-Type: application/json" -u admin:admin -d @maven.json 'http://nexus-ip:8081/service/rest/v1/repositories/maven/hosted'   
+    if [ $? -eq 0 ]  
+    then  
+      echo "the repository creation was successful"
+      else   
+      echo "repo creation was unsuccessful"  
+    fi  
+  sed -i "s/$mvnreponame/REPONAME/" maven.json   
+else   
   help  
 fi   
 
